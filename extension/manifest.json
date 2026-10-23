@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Live JP-ZH Captions",
+  "version": "1.0.0",
+  "description": "Captures the current tab's audio and streams it to the local live-jp-zh caption server.",
+  "permissions": ["tabCapture", "offscreen", "storage"],
+  "action": {
+    "default_title": "Live JP-ZH Captions: click to start/stop"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

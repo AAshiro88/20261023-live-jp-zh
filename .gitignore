@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.log
+
+# 模型與快取（大檔不進版控）
+models/
+hf_cache/
+
+# 執行產出
+transcript/
+
+# conda / venv
+.conda/
+venv/
+.venv/
+
+# 測試音檔
+*.wav
+*.mp3
+
+# IDE / 系統
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,10 @@
+# 主要直接依賴（版本見 requirements.lock.txt；本檔不含 llama-cpp-python，
+# 因其 Windows wheel 不在 PyPI，須由 setup_env.bat 以專案官方 CPU wheel 索引安裝：
+# pip install llama-cpp-python==0.3.36 --only-binary=:all:
+#   --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+faster-whisper==1.2.1
+ctranslate2==4.8.3
+opencc-python-reimplemented==0.1.7
+aiohttp>=3.12,<4
+scipy>=1.15
+numpy<3
