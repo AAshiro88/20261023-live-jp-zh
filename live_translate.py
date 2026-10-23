@@ -16,6 +16,7 @@ import json
 import math
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -402,11 +403,28 @@ class Translator(threading.Thread):
         resp = self.llm.create_chat_completion(
             messages,
             max_tokens=int(self.cfg.get("max_tokens", 200)),
-            temperature=float(self.cfg.get("temperature", 0.3)),
+            temperature=float(self.cfg.get("temperature", 0.15)),
             top_p=0.9,
             repeat_penalty=1.05,
         )
-        return self._sanitize(resp["choices"][0]["message"]["content"] or "")
+        zh = self._sanitize(resp["choices"][0]["message"]["content"] or "")
+        if not re.search(r"[\u4e00-\u9fff]", zh):
+            # 譯文完全沒有中文字（如輸出英文），加強指令重試一次
+            retry = self.llm.create_chat_completion(
+                messages + [{"role": "assistant", "content": zh},
+                            {"role": "user",
+                             "content": "上面不是中文。只用繁體中文重新翻譯原文，"
+                                        "其他什麼都不要輸出。"}],
+                max_tokens=int(self.cfg.get("max_tokens", 200)),
+                temperature=0.1,
+                top_p=0.9,
+                repeat_penalty=1.05,
+            )
+            cjk = self._sanitize(
+                retry["choices"][0]["message"]["content"] or "")
+            if re.search(r"[\u4e00-\u9fff]", cjk):
+                zh = cjk
+        return zh
 
     def run(self):
         loaded = False
@@ -727,7 +745,10 @@ async def run(args) -> int:
                 event = await q.get()
                 if event is None:
                     break
-                await ws.send_json(event)
+                try:
+                    await ws.send_json(event)
+                except Exception:
+                    break  # 字幕頁已關閉，靜默解除註冊
         finally:
             await broadcaster.unregister(ws)
         return ws

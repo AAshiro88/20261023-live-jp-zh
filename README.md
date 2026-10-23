@@ -47,9 +47,9 @@ live_translate.py (aiohttp)
 1. 雙擊 `run_live.bat`（等同：`live-jp-zh` 環境執行 `python live_translate.py`）。
    伺服器啟動在 `http://127.0.0.1:8850/`，ASR 與 LLM 載入約 3–10 秒。
 2. 開字幕網頁 `http://127.0.0.1:8850/`。
-   - 只想看字幕：雙擊 `open_caption.bat`，開一個 420x260 的獨立迷你視窗
-     （即 `http://127.0.0.1:8850/?mini=1`），可自行關掉大網頁；
-     `open_caption.bat 600 400` 可自訂視窗大小。
+   - 只想看字幕：雙擊 `open_caption.bat`，開一個獨立迷你視窗
+     （預設：螢幕 1/2 寬 x 1/3 高；即 `http://127.0.0.1:8850/?mini=1`），
+     可自行關掉大網頁；`open_caption.bat 600 400` 可自訂視窗大小。
 3. 到要翻譯的日文分頁（例如 YouTube 直播），點 Chrome 擴充功能圖示中的
    **「即時日→中字幕」**；點下去該分頁會開始送音。
   要停止則再次點圖示（分頁重新載入也會停止）。
