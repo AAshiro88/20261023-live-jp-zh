@@ -62,9 +62,7 @@ async function ensureOffscreen() {
 }
 
 async function setBadge(text, color) {
-  const opts = { text };
-  if (color) opts.backgroundColor = color;
-  await chrome.action.setBadgeText(opts);
+  await chrome.action.setBadgeText({ text });
   if (color) await chrome.action.setBadgeBackgroundColor({ color });
 }
 
@@ -110,5 +108,5 @@ chrome.runtime.onMessage.addListener((msg) => {
   return false;
 });
 
-// SW 重啟後還原工具列狀態
-applyAction(await getState());
+// SW 重啟後還原工具列狀態（service worker 不允許 top-level await）
+(async () => { await applyAction(await getState()); })();
