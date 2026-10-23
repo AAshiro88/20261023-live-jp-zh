@@ -550,6 +550,13 @@ ws.onmessage = (ev) => {{
 </script></body></html>"""
 
 
+def push_int16(state, x_int16: np.ndarray):
+    """重取樣 -> 16k 交給 VAD 佇列（ingest WS 與 WAV 模擬共用）。"""
+    block = state["rs"].push(x_int16)
+    if len(block):
+        state["pcm_q"].put(block)
+
+
 def render_page(obs: bool, max_lines: int) -> str:
     if obs:
         bg = "background:transparent"
@@ -605,7 +612,7 @@ async def ingest_handler(request, state) -> web.WebSocketResponse:
                     continue
                 x = np.frombuffer(msg.data, dtype=np.int16)
                 if 0 < len(x) <= INGEST_SAMPLE_RATE * 2:
-                    push_int16(x)
+                    push_int16(state, x)
             elif msg.type == WSMsgType.ERROR:
                 break
     finally:
@@ -640,13 +647,6 @@ async def run(args) -> int:
     asr_q: "queue.Queue" = queue.Queue()
     trans_q: "queue.Queue" = queue.Queue()
     counters = {"seq": 0}
-
-    def push_int16(x_int16: np.ndarray):
-        """重取樣 -> 16k 交給 VAD 佇列（WS 與 WAV 共用）。"""
-        rs = state["rs"]
-        block = rs.push(x_int16)
-        if len(block):
-            state["pcm_q"].put(block)
 
     enable_translate = bool(cfg["translate"].get("enabled", True))
     skip_threshold = int(cfg["translate"].get("skip_if_pending", 3))
@@ -736,7 +736,8 @@ async def run(args) -> int:
 
     def wav_wrapper():
         try:
-            wav_source(src_path, int(args.wav_sr), push_int16, not args.no_realtime)
+            wav_source(src_path, int(args.wav_sr),
+                       lambda b: push_int16(state, b), not args.no_realtime)
         except Exception as e:
             console.write(f"[S] WAV 餵音失敗: {e}")
         wav_done["flag"] = True
