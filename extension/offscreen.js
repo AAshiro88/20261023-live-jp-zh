@@ -82,6 +82,19 @@ function startCapture(streamId, url, sendResponse) {
       ctx = new AudioContext({ sampleRate: SR });
       src = ctx.createMediaStreamSource(stream);
 
+      // 擷取串流結束（分頁關閉/被瀏覽器停止）時通知 background 顯示 ERR
+      const track = stream.getAudioTracks()[0];
+      if (track) {
+        track.addEventListener('ended', () => {
+          chrome.runtime.sendMessage({
+            target: 'bg',
+            type: 'captureEnded',
+            reason: '音訊串流已結束（分頁關閉或被瀏覽器停止）',
+          }).catch(() => {});
+          stopAll();
+        });
+      }
+
       // Play-through so the user still hears the tab while capturing.
       src.connect(ctx.destination);
 
@@ -129,7 +142,7 @@ function startCapture(streamId, url, sendResponse) {
     });
 }
 
-function stopCapture(sendResponse) {
+function stopAll() {
   running = false;
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   try { if (ws) { ws.onclose = null; ws.close(); } } catch (e) {}
@@ -140,6 +153,10 @@ function stopCapture(sendResponse) {
   try { if (ctx) ctx.close(); } catch (e) {}
   ws = null; node = null; zero = null; src = null; media = null; ctx = null;
   pending = [];
+}
+
+function stopCapture(sendResponse) {
+  stopAll();
   sendResponse({ ok: true });
 }
 

@@ -6,9 +6,11 @@ __pycache__/
 # 模型與快取（大檔不進版控）
 models/
 hf_cache/
+.cache/
 
 # 執行產出
 transcript/
+*.tmp
 
 # conda / venv
 .conda/
