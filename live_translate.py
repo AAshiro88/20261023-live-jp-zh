@@ -503,13 +503,15 @@ HTML = """<!DOCTYPE html>
 <title>即時日→中字幕</title>
 <style>
 html,body {{ margin:0; height:100%; overflow:hidden; {bg}; font-family:"Microsoft JhengHei",sans-serif; }}
-.wrap {{ display:flex; flex-direction:column-reverse; height:100%; box-sizing:border-box; padding:10px 14px; gap:10px; }}
+.wrap {{ display:flex; flex-direction:column; justify-content:flex-end; height:100%; box-sizing:border-box; padding:10px 14px; gap:10px; }}
+#partial {{ order:999; }}
 .entry {{ {border}; padding:4px 6px; {shadow} }}
 .ja {{ color:#9aa0a6; font-size:14px; line-height:1.35; }}
 .zh {{ color:#fff; font-size:22px; line-height:1.5; font-weight:600; }}
 .partial {{ opacity:.55; }}
 .head {{ position:fixed; top:6px; left:16px; color:#7c828a; font-size:12px; }}
 a {{ color:#8ab4f8; }}
+{extra_style}
 </style></head>
 <body>
 {header}
@@ -557,20 +559,32 @@ def push_int16(state, x_int16: np.ndarray):
         state["pcm_q"].put(block)
 
 
-def render_page(obs: bool, max_lines: int) -> str:
-    if obs:
+def render_page(style: str, max_lines: int) -> str:
+    if style == "obs":
         bg = "background:transparent"
         header = ""
         border = "border:none"
         shadow = "text-shadow:0 0 4px rgba(0,0,0,.95),0 1px 2px rgba(0,0,0,.95)"
+        extra_style = ""
+    elif style == "mini":
+        # 迷你視窗：黑底、省空間的字級、無頁首
+        bg = "background:#0e0e12"
+        header = ""
+        border = "border:none"
+        shadow = ""
+        extra_style = (".wrap{{padding:6px 10px;gap:5px}}"
+                       ".zh{{font-size:15px;line-height:1.45}}"
+                       ".ja{{font-size:10px}}")
     else:
         bg = "background:#141418"
         header = ('<div class="head">live-jp-zh 即時日→中字幕　'
+                  '<a href="/?mini=1" target="_blank">迷你視窗</a>　'
                   '<a href="/?obs=1" target="_blank">OBS 透明版</a></div>')
         border = "border-top:1px solid #26262c"
         shadow = ""
+        extra_style = ""
     return HTML.format(bg=bg, header=header, border=border, shadow=shadow,
-                       max_lines=max_lines)
+                       max_lines=max_lines, extra_style=extra_style)
 
 
 async def ingest_handler(request, state) -> web.WebSocketResponse:
@@ -696,6 +710,14 @@ async def run(args) -> int:
                 console.write(f"[VAD] 失敗: {e}")
 
     # 應用路由
+    def pick_style(r):
+        # obs=1 透明字幕（OBS overlay）、mini=1 迷你黑底視窗
+        if r.query.get("obs") == "1":
+            return "obs"
+        if r.query.get("mini") == "1":
+            return "mini"
+        return "normal"
+
     async def events_handler(request) -> web.WebSocketResponse:
         ws = web.WebSocketResponse(heartbeat=30)
         await ws.prepare(request)
@@ -712,7 +734,7 @@ async def run(args) -> int:
 
     app = web.Application()
     app.router.add_get("/", lambda r: web.Response(
-        text=render_page(r.query.get("obs") == "1", max_lines),
+        text=render_page(pick_style(r), max_lines),
         content_type="text/html", charset="utf-8"))
     app.router.add_get("/events", events_handler)
     app.router.add_get("/ingest", lambda r: ingest_handler(r, state))
