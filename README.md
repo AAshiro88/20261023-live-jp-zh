@@ -3,7 +3,7 @@
 瀏覽器分頁音訊即時字幕：日文 ASR + 本機 LLM 翻譯成繁體中文（台灣用語）。
 
 - 音訊來源：Chrome 擴充功能擷取**指定分頁**（非全系統音），WebSocket 送本機伺服器。
-- 全程離線：faster-whisper `large-v3`（GPU/CUDA）+ llama.cpp `Qwen3-4B-Instruct-2507` Q4（CPU）。
+- 全程離線：faster-whisper（`large-v3` 或 KotobaWhisper v2.0-faster，GPU/CUDA）+ llama.cpp `Qwen3-4B-Instruct-2507` Q4（CPU）。
 - 字幕輸出：主控台、字幕網頁（可放 OBS 當 overlay）、transcript 記錄檔。
 
 ## 架構
@@ -16,7 +16,7 @@ Chrome 分頁
 live_translate.py (aiohttp)
   ├─ 48k→16k FIR 重取樣（StreamingResampler，帶狀態）
   ├─ Silero VAD 串流切句（faster-whisper 內附 silero_vad_v6.onnx）
-  ├─ faster-whisper large-v3（language=ja，CUDA）
+  ├─ faster-whisper（large-v3 或 KotobaWhisper v2.0-faster，language=ja，CUDA）
   ├─ llama.cpp Qwen3-4B Q4_K_M（CPU，日本語→繁體中文）
   ├─ OpenCC s2twp
   └─ 輸出：console、transcript log、
@@ -25,7 +25,7 @@ live_translate.py (aiohttp)
        http://127.0.0.1:8850/?obs=1  OBS 透明 overlay 版
 ```
 
-資料流：`final_ja` → 翻譯 → `final_zh`；部分轉錄（partial）先行顯示並送翻譯（積壓超過 `skip_if_pending` 時跳過，只等最終版），避免排隊堆積。
+資料流：`final_ja` → 翻譯 → `final_zh`；部分轉錄（partial）先行顯示並送翻譯（積壓超過 `translate.skip_if_pending` 時跳過，只等最終版），避免排隊堆積。
 
 ## 安裝
 
@@ -36,6 +36,7 @@ live_translate.py (aiohttp)
    ```
 
    - Whisper 模型 `large-v3` 若本機已有快取會以 junction 連結，不重複下載。
+   - KotobaWhisper v2.0-faster 位於 `models\faster-whisper\kotoba-whisper`。
    - GGUF 下載到 `models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf`。
 
 2. Chrome 擴充功能（只需一次）：
@@ -44,8 +45,24 @@ live_translate.py (aiohttp)
 
 ## 使用
 
-1. 雙擊 `run_live.bat`（等同：`live-jp-zh` 環境執行 `python live_translate.py`）。
-   伺服器啟動在 `http://127.0.0.1:8850/`，ASR 與 LLM 載入約 3–10 秒。
+1. 雙擊 `run_live.bat`。實際流程：`run_live.bat` 定位 conda 環境後叫用 `run_live.py`，先顯示 ASR 模型選單：
+
+   ```
+   ================================
+     即時日->中字幕  ASR 模型選擇
+   ================================
+   [1] faster-whisper large-v3（通用模型，約 3GB）
+   [2] KotobaWhisper v2.0-faster（日語優化，約 1.5GB）
+   ================================
+   請輸入選項 (1-2，預設 2):
+   ```
+
+   - 輸入 `1`：使用 `config.large-v3.json`（large-v3）
+   - 輸入 `2` 或直接按 Enter：使用 `config.json`（KotobaWhisper）
+   - 之後等同 `python live_translate.py --config <所選設定>`，額外參數會一併傳遞
+     （例如在命令列執行 `run_live.bat --wav 檔案.wav`）
+   - 啟動失敗時視窗會保留，可看到錯誤訊息
+   - 伺服器啟動在 `http://127.0.0.1:8850/`，ASR 與 LLM 載入約 3–10 秒。
 2. 開字幕網頁 `http://127.0.0.1:8850/`。
    - 只想看字幕：雙擊 `open_caption.bat`，開一個獨立迷你視窗
      （預設：螢幕 1/2 寬 x 1/3 高；即 `http://127.0.0.1:8850/?mini=1`），
@@ -64,9 +81,12 @@ OBS：加「瀏覽器」來源，網址 `http://127.0.0.1:8850/?obs=1`，勾「�
 ```
 python live_translate.py --wav 檔案.wav            # 實時節奏模擬串流
 python live_translate.py --wav 檔案.wav --no-realtime  # 全速餵（量測箱）
+python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指定 ASR 設定
 ```
 
-實測（20.8 秒日文合成語音、三句，RTX 3050 8GB + i5 CPU）：
+不帶 `--config` 時預設讀 `config.json`（KotobaWhisper）。
+
+實測（20.8 秒日文合成語音、三句，RTX 3050 8GB + i5 CPU，large-v3）：
 
 | 項目 | 數值 |
 |---|---|
@@ -77,30 +97,37 @@ python live_translate.py --wav 檔案.wav --no-realtime  # 全速餵（量測箱
 | 部分字幕出現延遲 | 約 0.7–1.5s（邊說邊出） |
 | 記憶體（VRAM） | whisper large-v3 約 3.5GB |
 
-## 設定（config.json）
+## 設定（config.json / config.large-v3.json）
+
+兩份設定檔的差異僅在 ASR 模型三項（`asr.model`、`asr.whisper_model_path`、`asr.temperature`）；其他鍵相同。
+`config.json` 為預設與選單第 2 項（KotobaWhisper）；`config.large-v3.json` 為選單第 1 項（large-v3，`temperature` 為 `[0.0, 0.4, 0.8]`）。
 
 | 鍵 | 說明 |
 |---|---|
 | `server.port` / `host` | HTTP/WS 埠（預設 8850），host 僅允許 127.0.0.1/localhost |
-| `asr.model` | 預設 `large-v3`；可改 `large-v3-turbo`（更快、品質略低） |
+| `asr.whisper_model_path` | 非空＝直接載入此本地 faster-whisper 目錄（`config.json` 預設 `models/faster-whisper/kotoba-whisper`）；空＝改用 `asr.model` 走快取 |
+| `asr.model` | `whisper_model_path` 為空時使用的模型名（`config.large-v3.json` 為 `large-v3`；可改 `large-v3-turbo`，更快、品質略低） |
 | `asr.device` / `compute_type` | 預設 `cuda`/`auto`；CPU 環境改 `cpu`/`int8` |
 | `asr.beam_size` | 預設 5 |
-| `vad.min_silence_ms` | 切句靜音門檻（預設 500） |
-| `vad.min_speech_ms` | 最短語音段（預設 250） |
-| `translate.model_gguf` | 翻譯 GGUF 路徑 |
-| `translate.threads` | llama.cpp CPU 執行緒數（預設 24） |
+| `vad.min_silence_duration_ms` | 切句靜音門檻（預設 500） |
+| `vad.min_speech_duration_ms` | 最短語音段（預設 300） |
+| `vad.max_utterance_seconds` | 單句最長（預設 12.0） |
+| `vad.preroll_seconds` | 語音開始前保留的音訊（預設 0.3） |
+| `translate.gguf_path` | 翻譯 GGUF 路徑（目前 `models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf`） |
+| `translate.n_threads` | llama.cpp CPU 執行緒數（預設 `-1`＝全部核心） |
+| `translate.n_gpu_layers` | 載入到 GPU 的層數（預設 `0`＝純 CPU） |
 | `translate.temperature` | 預設 0.15 |
+| `translate.history_turns` | 附帶最近 N 條 `final` 給 LLM 參考（預設 3） |
 | `translate.skip_if_pending` | 積壓 partial 翻譯上限（預設 3） |
-| `output.ts_offset` | 字幕網頁時間戳顯示的時差（小時） |
 
-LLM 對話可帶最近 2 條 `final` 為參考（`max_history`），提升代名詞與接續一致性。
+LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升代名詞與接續一致性。
 
 ## 已知限制
 
 - 需支援 WebAudio tabCapture 的 Chromium 瀏覽器；受 DRM 保護的內容（如 Netflix）分頁音可能被瀏覽器擋住無法擷取。
-- `large-v3` 偶爾在純音樂/無語音時產生幻覺文字；有 `no_repeat`、`no_speech`、`log_probs` 過濾與重複文字丟棄機制，但非 100%。
+- Whisper 偶爾在純音樂/無語音時產生幻覺文字；有 `no_speech`、`log_probs`、`compression_ratio` 過濾與重複文字丟棄機制，但非 100%。
 - 只有單一 Clients 連線吃音（多分頁同時搶會踢掉前一個）。
-- LLM 跑 CPU（3050 8GB 需保留給 Whisper）；若顯卡空間夠可改成 CUDA 版 llama wheel。
+- LLM 跑 CPU（3050 8GB 需保留給 Whisper）；若顯卡空間夠可改成 CUDA 版 llama wheel（並調高 `translate.n_gpu_layers`）。
 - 網頁介面僅本機可用（`127.0.0.1`/`localhost`），不會對外開放。
 
 ## 檔案
@@ -108,9 +135,13 @@ LLM 對話可帶最近 2 條 `final` 為參考（`max_history`），提升代名
 | 路徑 | 說明 |
 |---|---|
 | `live_translate.py` | 主程式（HTTP/WS 伺服器、重取樣、VAD、ASR、翻譯、輸出） |
-| `config.json` | 各項設定 |
-| `setup_env.bat` / `run_live.bat` | 環境建置 / 啟動 |
+| `run_live.bat` | 啟動捷徑（純英文）；定位 conda 環境後叫用 `run_live.py` |
+| `run_live.py` | ASR 模型選單；依選擇帶 `--config` 啟動 `live_translate.py`（額外參數會傳遞） |
+| `config.json` | 預設設定／KotobaWhisper（選單第 2 項） |
+| `config.large-v3.json` | large-v3 設定（選單第 1 項） |
+| `setup_env.bat` | 環境建置 |
+| `open_caption.bat` | 開獨立迷你字幕視窗 |
 | `requirements.txt` / `requirements.lock.txt` | 依賴（寬鬆 / 鎖定版號） |
 | `extension\` | Chrome MV3 擴充功能 |
-| `models\` | faster-whisper 快取（junction）與 GGUF 模型 |
+| `models\` | faster-whisper 快取（junction）、`faster-whisper\kotoba-whisper`、GGUF 模型 |
 | `transcript\` | 輸出記錄檔 |

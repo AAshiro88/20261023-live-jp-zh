@@ -4,17 +4,15 @@
     "port": 8850
   },
   "asr": {
-    "model": "large-v3",
-    "whisper_model_path": "",
+    "model": "",
+    "whisper_model_path": "models/faster-whisper/kotoba-whisper",
     "models_dir": "models",
     "device": "cuda",
     "compute_type": "auto",
     "language": "ja",
     "beam_size": 5,
     "temperature": [
-      0.0,
-      0.4,
-      0.8
+      0.0
     ],
     "condition_on_previous_text": false,
     "no_speech_threshold": 0.6,
