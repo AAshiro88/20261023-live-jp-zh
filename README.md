@@ -54,12 +54,14 @@ live_translate.py (aiohttp)
    ================================
    [1] faster-whisper large-v3（通用模型，約 3GB）
    [2] KotobaWhisper v2.0-faster（日語優化，約 1.5GB）
+   [3] KotobaWhisper + LLM 全掛 GPU（需 CUDA 版 llama wheel）
    ================================
-   請輸入選項 (1-2，預設 2):
+   請輸入選項 (1-3，預設 3):
    ```
 
-   - 輸入 `1`：使用 `config.large-v3.json`（large-v3）
-   - 輸入 `2` 或直接按 Enter：使用 `config.json`（KotobaWhisper）
+   - 輸入 `1`：使用 `config.large-v3.json`（large-v3，LLM 跑 CPU）
+   - 輸入 `2`：使用 `config.json`（KotobaWhisper，LLM 跑 CPU）
+   - 輸入 `3` 或直接按 Enter：使用 `config.all-gpu.json`（KotobaWhisper + LLM 全部上 GPU，需先換 CUDA 版 llama wheel，見〈全掛 GPU〉）
    - 之後等同 `python live_translate.py --config <所選設定>`，額外參數會一併傳遞
      （例如在命令列執行 `run_live.bat --wav 檔案.wav`）
    - 啟動失敗時視窗會保留，可看到錯誤訊息
@@ -98,10 +100,10 @@ python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指�
 | 部分字幕出現延遲 | 約 0.7–1.5s（邊說邊出） |
 | 記憶體（VRAM） | whisper large-v3 約 3.5GB |
 
-## 設定（config.json / config.large-v3.json）
+## 設定（config.json / config.large-v3.json / config.all-gpu.json）
 
-兩份設定檔的差異僅在 ASR 模型三項（`asr.model`、`asr.whisper_model_path`、`asr.temperature`）；其他鍵相同。
-`config.json` 為預設與選單第 2 項（KotobaWhisper）；`config.large-v3.json` 為選單第 1 項（large-v3，`temperature` 為 `[0.0, 0.4, 0.8]`）。
+三份設定檔的差異只在 ASR 模型三項（`asr.model`、`asr.whisper_model_path`、`asr.temperature`）與 `translate.n_gpu_layers`；其他鍵相同。
+`config.all-gpu.json` 為預設與選單第 3 項（KotobaWhisper + `translate.n_gpu_layers: 99`＝全部層上 GPU）；`config.json` 為選單第 2 項（KotobaWhisper，LLM 跑 CPU）；`config.large-v3.json` 為選單第 1 項（large-v3，`temperature` 為 `[0.0, 0.4, 0.8]`）。
 
 | 鍵 | 說明 |
 |---|---|
@@ -118,7 +120,7 @@ python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指�
 | `vad.partial_every_seconds` | 說話期間每隔幾秒解一次 partial（預設 0.8；越小越快看到字，但吃更多 GPU） |
 | `translate.gguf_path` | 翻譯 GGUF 路徑（目前 `models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf`） |
 | `translate.n_threads` | llama.cpp CPU 執行緒數（預設 `-1`＝全部核心） |
-| `translate.n_gpu_layers` | 載入到 GPU 的層數（預設 `0`＝純 CPU） |
+| `translate.n_gpu_layers` | 載入到 GPU 的層數（`0`＝純 CPU；`config.all-gpu.json` 為 `99`＝全部層上 GPU，需 CUDA 版 llama wheel） |
 | `translate.temperature` | 預設 0.15 |
 | `translate.max_tokens` | 定稿翻譯長度上限（預設 200） |
 | `translate.partial_max_tokens` | partial 翻譯長度上限（預設 96；partial 會被定稿取代，不需太長） |
@@ -135,12 +137,33 @@ LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升�
 - 想讓「說完→定稿」更快：調低 `vad.min_silence_duration_ms`（太低會把停頓切成兩句）或 `asr.beam_size`。
 - 有 final 在排隊時，排隊中的 partial 會直接讓位，不會卡住定稿。
 
+## 全掛 GPU（選用）
+
+`setup_env.bat` 安裝的是 CPU 版 llama.cpp（`whl/cpu`），這種 build 會忽略 `translate.n_gpu_layers`。要讓 LLM 上 GPU，換成對應 CUDA 版本的 wheel（以本機 RTX 3050 / CUDA 12.4 build 為例）：
+
+```
+C:\Users\ayore\.conda\envs\live-jp-zh\Scripts\pip.exe install ^
+  https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.36-cu124/llama_cpp_python-0.3.36-py3-none-win_amd64.whl
+```
+
+其他 CUDA 版本可從 <https://abetlen.github.io/llama-cpp-python/whl/cu124/llama-cpp-python/> 之類的索引挑選。**重新執行 `setup_env.bat` 會把 wheel 換回 CPU 版**，需再執行上面指令。
+
+1. 啟動時選 `3`（`config.all-gpu.json`），或手動指定：
+
+   ```
+   python live_translate.py --config config.all-gpu.json
+   ```
+
+2. VRAM：KotobaWhisper 約 1.5GB ＋ Qwen3-4B Q4 全部層約 3.5GB，實測含桌面佔用約 **5.8GB / 8GB**。large-v3 加上 LLM 約 **7.5GB**，8GB 很緊，容易 OOM。
+3. 若出現 OOM：把 `config.all-gpu.json` 的 `translate.n_gpu_layers` 調低（例如 20），或改跑 `large-v3-turbo`。
+4. 驗證：跑起來後看 `nvidia-smi`（VRAM 應明顯上升），以及 `transcript\<日期時間>.log` 的 `(LLM x.xs)` 是否變小。
+
 ## 已知限制
 
 - 需支援 WebAudio tabCapture 的 Chromium 瀏覽器；受 DRM 保護的內容（如 Netflix）分頁音可能被瀏覽器擋住無法擷取。
 - Whisper 偶爾在純音樂/無語音時產生幻覺文字；有 `no_speech`、`log_probs`、`compression_ratio` 過濾與重複文字丟棄機制，但非 100%。
 - 只有單一 Clients 連線吃音（多分頁同時搶會踢掉前一個）。
-- LLM 跑 CPU（3050 8GB 需保留給 Whisper）；若顯卡空間夠可改成 CUDA 版 llama wheel（並調高 `translate.n_gpu_layers`）。
+- 選單預設第 3 項會把 LLM 放上 GPU，但需 CUDA 版 llama wheel；若仍是 CPU 版，llama.cpp 會忽略 `translate.n_gpu_layers` 退回 CPU（不會報錯）。
 - 網頁介面僅本機可用（`127.0.0.1`/`localhost`），不會對外開放。
 
 ## 檔案
@@ -150,8 +173,9 @@ LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升�
 | `live_translate.py` | 主程式（HTTP/WS 伺服器、重取樣、VAD、ASR、翻譯、輸出） |
 | `run_live.bat` | 啟動捷徑（純英文）；定位 conda 環境後叫用 `run_live.py` |
 | `run_live.py` | ASR 模型選單；依選擇帶 `--config` 啟動 `live_translate.py`（額外參數會傳遞） |
-| `config.json` | 預設設定／KotobaWhisper（選單第 2 項） |
+| `config.json` | KotobaWhisper 設定（選單第 2 項，LLM 跑 CPU） |
 | `config.large-v3.json` | large-v3 設定（選單第 1 項） |
+| `config.all-gpu.json` | KotobaWhisper + LLM 全掛 GPU（選單第 3 項） |
 | `setup_env.bat` | 環境建置 |
 | `open_caption.bat` | 開獨立迷你字幕視窗 |
 | `requirements.txt` / `requirements.lock.txt` | 依賴（寬鬆 / 鎖定版號） |

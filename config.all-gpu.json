@@ -1,0 +1,53 @@
+{
+  "server": {
+    "host": "127.0.0.1",
+    "port": 8850
+  },
+  "asr": {
+    "model": "",
+    "whisper_model_path": "models/faster-whisper/kotoba-whisper",
+    "models_dir": "models",
+    "device": "cuda",
+    "compute_type": "auto",
+    "language": "ja",
+    "beam_size": 3,
+    "without_timestamps": true,
+    "temperature": [
+      0.0
+    ],
+    "condition_on_previous_text": false,
+    "no_speech_threshold": 0.6,
+    "log_prob_threshold": -1.0,
+    "compression_ratio_threshold": 2.4,
+    "hotwords": [],
+    "drop_repeated_segments": true,
+    "show_partials": true,
+    "translate_partials": true
+  },
+  "vad": {
+    "threshold": 0.5,
+    "min_silence_duration_ms": 400,
+    "min_speech_duration_ms": 300,
+    "max_utterance_seconds": 12.0,
+    "preroll_seconds": 0.3,
+    "partial_every_seconds": 0.8
+  },
+  "audio_block_seconds": 0.22,
+  "translate": {
+    "enabled": true,
+    "gguf_path": "models\\Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "n_ctx": 4096,
+    "n_gpu_layers": 99,
+    "n_threads": -1,
+    "temperature": 0.15,
+    "max_tokens": 200,
+    "partial_max_tokens": 96,
+    "history_turns": 2,
+    "skip_if_pending": 3
+  },
+  "output": {
+    "opencc_config": "s2twp",
+    "transcript_dir": "transcript",
+    "max_lines_on_page": 12
+  }
+}

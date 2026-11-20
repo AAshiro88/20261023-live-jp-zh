@@ -411,13 +411,26 @@ class Translator(threading.Thread):
         n_threads = int(self.cfg.get("n_threads", -1))
         if n_threads <= 0:
             n_threads = os.cpu_count() or 4
+        n_gpu_layers = int(self.cfg.get("n_gpu_layers", 0))
+        if n_gpu_layers > 0:
+            # CPU wheel 沒有 GPU offload，n_gpu_layers 會被忽略；先提醒避免誤判
+            try:
+                if not llama_cpp.llama_supports_gpu_offload():
+                    self.console.write(
+                        "[LLM] 目前安裝的 llama-cpp-python 不支援 GPU offload"
+                        "（CPU wheel），n_gpu_layers 不會生效；"
+                        "請參考 README〈全掛 GPU〉")
+            except Exception:
+                pass
         t0 = time.time()
-        self.console.write(f"[LLM] 載入 {path.name}（CPU 執行緒 {n_threads}）…")
+        self.console.write(
+            f"[LLM] 載入 {path.name}（CPU 執行緒 {n_threads}，"
+            f"GPU 層 {n_gpu_layers}）…")
         self.llm = llama_cpp.Llama(
             model_path=str(path),
             n_ctx=int(self.cfg.get("n_ctx", 4096)),
             n_threads=n_threads,
-            n_gpu_layers=int(self.cfg.get("n_gpu_layers", 0)),
+            n_gpu_layers=n_gpu_layers,
             verbose=False,
         )
         self.console.write(f"[LLM] 模型就緒（{time.time() - t0:.1f}s）")

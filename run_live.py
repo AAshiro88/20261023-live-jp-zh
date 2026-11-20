@@ -10,8 +10,9 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_CHOICES = {
     "1": ("config.large-v3.json", "faster-whisper large-v3（通用模型，約 3GB）"),
     "2": ("config.json",          "KotobaWhisper v2.0-faster（日語優化，約 1.5GB）"),
+    "3": ("config.all-gpu.json",  "KotobaWhisper + LLM 全掛 GPU（需 CUDA 版 llama wheel）"),
 }
-DEFAULT_CHOICE = "2"
+DEFAULT_CHOICE = "3"
 
 
 def main():
@@ -31,7 +32,7 @@ def main():
     # 非互動環境（stdin 關閉或導向）時 input() 會丟 EOFError，視為直接採用預設值
     while True:
         try:
-            choice = input(f"請輸入選項 (1-2，預設 {DEFAULT_CHOICE}): ").strip()
+            choice = input(f"請輸入選項 (1-3，預設 {DEFAULT_CHOICE}): ").strip()
         except EOFError:
             choice = ""
         if not choice:
