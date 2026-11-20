@@ -1,6 +1,6 @@
 @echo off
 REM Open the caption mini window as a standalone Chrome app window
-REM Default size: 1/2 screen width x 1/3 screen height
+REM Default size: 5/12 screen width (between 1/3 and 1/2) x 1/3 screen height
 REM Usage: open_caption.bat [width] [height]   (explicit args override defaults)
 REM Keep the server (run_live.bat) running before using this.
 setlocal
@@ -12,7 +12,7 @@ for /f "tokens=1,2 delims=," %%a in ('powershell -NoProfile -Command "Add-Type -
   set SW=%%a
   set SH=%%b
 )
-set /a W=SW/2
+set /a W=SW*5/12
 set /a H=SH/3
 
 REM Explicit args override
