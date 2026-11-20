@@ -274,13 +274,14 @@ class FinalGate:
 
 class AsrWorker(threading.Thread):
     def __init__(self, cfg: dict, console: Console, job_q: "queue.Queue", publish,
-                 gate: FinalGate):
+                 gate: FinalGate, separator=None):
         super().__init__(daemon=True, name="asr")
         self.cfg = cfg
         self.console = console
         self.q = job_q
         self.publish = publish
         self.gate = gate
+        self.separator = separator
         self.model = None
         self.last_final = ""
 
@@ -355,6 +356,15 @@ class AsrWorker(threading.Thread):
                 else:
                     self.gate.done()
                     t0 = time.time()
+                    sep_note = ""
+                    if self.separator is not None:
+                        # 定稿前先做人聲分離（唱歌/背景音樂場景）；失敗則用原始音訊
+                        try:
+                            audio = self.separator.separate(audio)
+                            sep_note = f" 分離{time.time() - t0:.1f}s"
+                        except Exception as e:
+                            self.console.write(f"[SEP] 失敗，改用原始音訊: {e}")
+                        t0 = time.time()
                     segs, _ = self.model.transcribe(audio, **self._kw_final())
                     text = "".join(s.text for s in segs).strip()
                     dt = time.time() - t0
@@ -366,8 +376,8 @@ class AsrWorker(threading.Thread):
                         continue
                     self.last_final = text
                     self.console.write(
-                        f"[{now_ts()}] ASR #{seq} 語音{dur:.1f}s 解碼{dt:.1f}s "
-                        f"(rtf {rtf:.2f}) JA {text}")
+                        f"[{now_ts()}] ASR #{seq} 語音{dur:.1f}s{sep_note} "
+                        f"解碼{dt:.1f}s (rtf {rtf:.2f}) JA {text}")
                     self.publish("final_ja", {"seq": seq, "ja": text,
                                               "dur": round(dur, 2),
                                               "decode": round(dt, 2)})
@@ -749,6 +759,35 @@ async def run(args) -> int:
     asr_gate = FinalGate()
     llm_gate = FinalGate()
 
+    # 人聲分離（歌曲模式）：模型缺檔時自動下載並驗證 SHA256
+    separator = None
+    sep_cfg = cfg.get("separation") or {}
+    if bool(sep_cfg.get("enabled", False)):
+        try:
+            from vocal_sep import VocalSeparator
+            model_path = str(BASE_DIR / str(sep_cfg.get(
+                "model_path", "models/separation/UVR-MDX-NET-Inst_HQ_3.onnx")))
+            VocalSeparator.ensure_model(
+                model_path,
+                str(sep_cfg.get("model_url",
+                                "https://github.com/TRvlvr/model_repo/releases/"
+                                "download/all_public_uvr_models/"
+                                "UVR-MDX-NET-Inst_HQ_3.onnx")),
+                str(sep_cfg.get("model_sha256",
+                                "317554b07fe1ea5279a77f2b1520a41ea4b93432560c4ffd"
+                                "08792c30fddf9adc")),
+                console)
+            separator = VocalSeparator(
+                model_path, device=str(sep_cfg.get("device", "cpu")),
+                overlap=float(sep_cfg.get("overlap", 0.25)),
+                compensate=float(sep_cfg.get("compensate", 1.022)),
+                console=console)
+            console.write(f"[SEP] 人聲分離啟用（{Path(model_path).name}，"
+                          f"device={sep_cfg.get('device', 'cpu')}）")
+        except Exception as e:
+            console.write(f"[SEP] 分離模型載入失敗，已停用: {e}")
+            separator = None
+
     enable_translate = bool(cfg["translate"].get("enabled", True))
     skip_threshold = int(cfg["translate"].get("skip_if_pending", 3))
 
@@ -784,7 +823,8 @@ async def run(args) -> int:
                           to_file=False)
         broadcaster.publish(stage_out, data)
 
-    asr_worker = AsrWorker(cfg["asr"], console, asr_q, asr_publish, asr_gate)
+    asr_worker = AsrWorker(cfg["asr"], console, asr_q, asr_publish, asr_gate,
+                           separator)
     translator = Translator(cfg["translate"], cfg["output"], console, trans_q,
                             llm_publish, llm_gate)
 

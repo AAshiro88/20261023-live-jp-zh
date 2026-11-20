@@ -55,13 +55,15 @@ live_translate.py (aiohttp)
    [1] faster-whisper large-v3（通用模型，約 3GB）
    [2] KotobaWhisper v2.0-faster（日語優化，約 1.5GB）
    [3] KotobaWhisper + LLM 全掛 GPU（需 CUDA 版 llama wheel）
+   [4] 歌曲模式：KotobaWhisper + 人聲分離去 BGM
    ================================
-   請輸入選項 (1-3，預設 3):
+   請輸入選項 (1-4，預設 3):
    ```
 
    - 輸入 `1`：使用 `config.large-v3.json`（large-v3，LLM 跑 CPU）
    - 輸入 `2`：使用 `config.json`（KotobaWhisper，LLM 跑 CPU）
    - 輸入 `3` 或直接按 Enter：使用 `config.all-gpu.json`（KotobaWhisper + LLM 全部上 GPU，需先換 CUDA 版 llama wheel，見〈全掛 GPU〉）
+   - 輸入 `4`：使用 `config.song.json`（歌曲模式，見〈歌曲模式（唱歌/背景音樂）〉）
    - 之後等同 `python live_translate.py --config <所選設定>`，額外參數會一併傳遞
      （例如在命令列執行 `run_live.bat --wav 檔案.wav`）
    - 啟動失敗時視窗會保留，可看到錯誤訊息
@@ -100,10 +102,10 @@ python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指�
 | 部分字幕出現延遲 | 約 0.7–1.5s（邊說邊出） |
 | 記憶體（VRAM） | whisper large-v3 約 3.5GB |
 
-## 設定（config.json / config.large-v3.json / config.all-gpu.json）
+## 設定（config.json / config.large-v3.json / config.all-gpu.json / config.song.json）
 
-三份設定檔的差異只在 ASR 模型三項（`asr.model`、`asr.whisper_model_path`、`asr.temperature`）與 `translate.n_gpu_layers`；其他鍵相同。
-`config.all-gpu.json` 為預設與選單第 3 項（KotobaWhisper + `translate.n_gpu_layers: 99`＝全部層上 GPU）；`config.json` 為選單第 2 項（KotobaWhisper，LLM 跑 CPU）；`config.large-v3.json` 為選單第 1 項（large-v3，`temperature` 為 `[0.0, 0.4, 0.8]`）。
+四份設定檔的差異只在 ASR 模型三項（`asr.model`、`asr.whisper_model_path`、`asr.temperature`）、`translate.n_gpu_layers`、歌曲模式的 `separation` 區塊與少數 ASR/VAD 值；其他鍵相同。
+`config.all-gpu.json` 為預設與選單第 3 項（KotobaWhisper + `translate.n_gpu_layers: 99`＝全部層上 GPU）；`config.json` 為選單第 2 項（KotobaWhisper，LLM 跑 CPU）；`config.large-v3.json` 為選單第 1 項（large-v3，`temperature` 為 `[0.0, 0.4, 0.8]`）；`config.song.json` 為選單第 4 項（歌曲模式）。
 
 | 鍵 | 說明 |
 |---|---|
@@ -126,6 +128,10 @@ python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指�
 | `translate.partial_max_tokens` | partial 翻譯長度上限（預設 96；partial 會被定稿取代，不需太長） |
 | `translate.history_turns` | 附帶最近 N 條 `final` 給 LLM 參考（預設 2；越多越慢） |
 | `translate.skip_if_pending` | 積壓 partial 翻譯上限（預設 3） |
+| `separation.enabled` | 歌曲模式：定稿前做人聲分離（預設關閉，`config.song.json` 開啟） |
+| `separation.model_path` / `model_url` / `model_sha256` | 分離模型（UVR-MDX-NET-Inst_HQ_3）路徑、下載網址與驗證雜湊 |
+| `separation.device` | `cpu`（預設；定稿多等約 1–3s）或 `cuda`（需 onnxruntime-gpu） |
+| `separation.overlap` / `compensate` | 分離推論的視窗重疊（預設 0.25）與伴奏抵消量（預設 1.022） |
 
 LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升代名詞與接續一致性。
 
@@ -136,6 +142,20 @@ LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升�
 - 想讓「開始說話→出現第一行字」更快：調低 `vad.partial_every_seconds`。
 - 想讓「說完→定稿」更快：調低 `vad.min_silence_duration_ms`（太低會把停頓切成兩句）或 `asr.beam_size`。
 - 有 final 在排隊時，排隊中的 partial 會直接讓位，不會卡住定稿。
+
+## 歌曲模式（唱歌/背景音樂）
+
+Whisper 是用「說話」訓練的，遇到唱歌 + 背景音樂辨識會明顯變差。歌曲模式在**定稿前**先做一次人聲分離（MDX-Net ONNX），只把人聲餵給 ASR：
+
+- partial（即時預覽）不分離，維持原本延遲；VAD 切句後才分離再定稿，所以「定稿」會比對話模式多等約 1–3 秒（CPU 上分離實測約 0.4× 即時速度，10 秒的句子約多 4 秒內）。
+- `drop_repeated_segments` 在歌曲模式預設**關閉**：副歌重複的歌詞不會被當成幻覺丟掉。
+- `beam_size` 回 5（歌曲較吃準度）、`max_utterance_seconds` 15、切句靜音門檻 500ms。
+- 分離模型首次使用會自動下載到 `models\separation\`（約 67MB，SHA256 已驗證），之後離線可用。
+- `separation.device` 可改 `cuda`（需 onnxruntime-gpu；目前的 onnxruntime 是 CPU 版，faster-whisper 依賴它，先不要動）。
+- 想提高特定歌曲的準度，可在 `asr.hotwords` 填入歌名或已知歌詞詞組。
+- CLI 測試：`python live_translate.py --config config.song.json --wav 歌曲.mp3`
+
+已知限制：分離不是银弹，編曲很滿或人聲被伴奏蓋住時仍會漏字；對純說話內容沒有壞處但也不需要。
 
 ## 全掛 GPU（選用）
 
@@ -176,6 +196,9 @@ C:\Users\ayore\.conda\envs\live-jp-zh\Scripts\pip.exe install ^
 | `config.json` | KotobaWhisper 設定（選單第 2 項，LLM 跑 CPU） |
 | `config.large-v3.json` | large-v3 設定（選單第 1 項） |
 | `config.all-gpu.json` | KotobaWhisper + LLM 全掛 GPU（選單第 3 項） |
+| `config.song.json` | 歌曲模式：人聲分離 + 副歌不丟棄（選單第 4 項） |
+| `vocal_sep.py` | MDX-Net（UVR）ONNX 人聲分離模組（numpy + onnxruntime，不依賴 torch） |
+| `models\separation\` | 分離模型（首次使用自動下載） |
 | `setup_env.bat` | 環境建置 |
 | `open_caption.bat` | 開獨立迷你字幕視窗 |
 | `requirements.txt` / `requirements.lock.txt` | 依賴（寬鬆 / 鎖定版號） |
