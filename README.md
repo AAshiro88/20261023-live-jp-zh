@@ -25,7 +25,7 @@ live_translate.py (aiohttp)
        http://127.0.0.1:8850/?obs=1  OBS 透明 overlay 版
 ```
 
-資料流：`final_ja` → 翻譯 → `final_zh`；部分轉錄（partial）先行顯示並送翻譯（積壓超過 `translate.skip_if_pending` 時跳過，只等最終版），避免排隊堆積。
+資料流：`final_ja` → 翻譯 → `final_zh`；部分轉錄（partial）先行顯示並送翻譯（積壓超過 `translate.skip_if_pending` 時跳過，只等最終版），避免排隊堆積。有定稿（final）在排隊時，尚未開始的 partial 會直接讓位，不佔用 ASR 與翻譯。
 
 ## 安裝
 
@@ -42,6 +42,7 @@ live_translate.py (aiohttp)
 2. Chrome 擴充功能（只需一次）：
 
    - 開 `chrome://extensions` → 右上「開發人員模式」→「載入未封裝項目」→ 選 `D:\claudeFile\20261023-live-jp-zh\extension`。
+   - 之後若改過 `extension\` 內的檔案，要在 `chrome://extensions` 該擴充功能按「重新載入」，並重新點圖示開始擷取。
 
 ## 使用
 
@@ -108,19 +109,31 @@ python live_translate.py --config config.large-v3.json --wav 檔案.wav  # 指�
 | `asr.whisper_model_path` | 非空＝直接載入此本地 faster-whisper 目錄（`config.json` 預設 `models/faster-whisper/kotoba-whisper`）；空＝改用 `asr.model` 走快取 |
 | `asr.model` | `whisper_model_path` 為空時使用的模型名（`config.large-v3.json` 為 `large-v3`；可改 `large-v3-turbo`，更快、品質略低） |
 | `asr.device` / `compute_type` | 預設 `cuda`/`auto`；CPU 環境改 `cpu`/`int8` |
-| `asr.beam_size` | 預設 5 |
-| `vad.min_silence_duration_ms` | 切句靜音門檻（預設 500） |
+| `asr.beam_size` | 預設 3（越高越準但越慢；想更準可改回 5） |
+| `asr.without_timestamps` | 預設 `true`：字幕不需要時間戳，跳過時間戳解碼可省時間 |
+| `vad.min_silence_duration_ms` | 切句靜音門檻（預設 400；越低定稿越快，但太低的停頓會被切成兩句） |
 | `vad.min_speech_duration_ms` | 最短語音段（預設 300） |
-| `vad.max_utterance_seconds` | 單句最長（預設 12.0） |
+| `vad.max_utterance_seconds` | 單句最長（預設 12.0；一直不換氣時的最長等待） |
 | `vad.preroll_seconds` | 語音開始前保留的音訊（預設 0.3） |
+| `vad.partial_every_seconds` | 說話期間每隔幾秒解一次 partial（預設 0.8；越小越快看到字，但吃更多 GPU） |
 | `translate.gguf_path` | 翻譯 GGUF 路徑（目前 `models\Qwen3-4B-Instruct-2507-Q4_K_M.gguf`） |
 | `translate.n_threads` | llama.cpp CPU 執行緒數（預設 `-1`＝全部核心） |
 | `translate.n_gpu_layers` | 載入到 GPU 的層數（預設 `0`＝純 CPU） |
 | `translate.temperature` | 預設 0.15 |
-| `translate.history_turns` | 附帶最近 N 條 `final` 給 LLM 參考（預設 3） |
+| `translate.max_tokens` | 定稿翻譯長度上限（預設 200） |
+| `translate.partial_max_tokens` | partial 翻譯長度上限（預設 96；partial 會被定稿取代，不需太長） |
+| `translate.history_turns` | 附帶最近 N 條 `final` 給 LLM 參考（預設 2；越多越慢） |
 | `translate.skip_if_pending` | 積壓 partial 翻譯上限（預設 3） |
 
 LLM 對話可帶最近 `translate.history_turns` 條 `final` 為參考，提升代名詞與接續一致性。
+
+### 延遲調整
+
+延遲主要來自四段：擴充功能送音訊的區塊（`extension\offscreen.js` 的 `CHUNK_SEND`，預設 2048 samples ≈ 43ms）、VAD 切句靜音門檻、ASR 解碼（`beam_size`）、LLM 翻譯（CPU）。
+
+- 想讓「開始說話→出現第一行字」更快：調低 `vad.partial_every_seconds`。
+- 想讓「說完→定稿」更快：調低 `vad.min_silence_duration_ms`（太低會把停頓切成兩句）或 `asr.beam_size`。
+- 有 final 在排隊時，排隊中的 partial 會直接讓位，不會卡住定稿。
 
 ## 已知限制
 

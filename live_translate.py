@@ -42,7 +42,7 @@ SYSTEM_PROMPT = (
     "- 內容不完整時依現有資訊直譯，不要補充或改寫。"
 )
 
-PARTIAL_EVERY_SEC = 1.5  # 說話期間每隔幾秒解一次 provisional
+PARTIAL_EVERY_SEC = 1.0  # 說話期間每隔幾秒解一次 provisional（可由 vad.partial_every_seconds 覆寫）
 
 
 # --------------------------------------------------------------------------- #
@@ -169,6 +169,8 @@ class StreamVAD:
         self.min_speech_ms = int(cfg.get("min_speech_duration_ms", 300))
         self.max_samples = int(float(cfg.get("max_utterance_seconds", 12.0)) * TARGET_SR)
         self.preroll_n = int(float(cfg.get("preroll_seconds", 0.3)) * TARGET_SR) // self.window
+        self.partial_every = float(
+            cfg.get("partial_every_seconds", PARTIAL_EVERY_SEC))
 
         self.preroll: deque = deque(maxlen=max(self.preroll_n, 1))
         self.buf = np.zeros(0, dtype=np.float32)
@@ -221,7 +223,7 @@ class StreamVAD:
             if self.speech_samples >= self.max_samples:
                 self.finalize(False)
                 return
-            if (t - self.last_partial_tick) >= PARTIAL_EVERY_SEC:
+            if (t - self.last_partial_tick) >= self.partial_every:
                 self.last_partial_tick = t
                 self.on_partial_tick(np.concatenate(self.speech))
 
@@ -242,16 +244,43 @@ class StreamVAD:
 
 
 # --------------------------------------------------------------------------- #
+# final 優先權：排隊中的 partial 遇到 final 直接讓位（partial 只是過渡顯示）
+# --------------------------------------------------------------------------- #
+
+class FinalGate:
+    """記錄尚未開始處理的 final 工作數。"""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._count = 0
+
+    def add(self):
+        with self._lock:
+            self._count += 1
+
+    def done(self):
+        with self._lock:
+            if self._count > 0:
+                self._count -= 1
+
+    def any(self) -> bool:
+        with self._lock:
+            return self._count > 0
+
+
+# --------------------------------------------------------------------------- #
 # ASR 執行緒
 # --------------------------------------------------------------------------- #
 
 class AsrWorker(threading.Thread):
-    def __init__(self, cfg: dict, console: Console, job_q: "queue.Queue", publish):
+    def __init__(self, cfg: dict, console: Console, job_q: "queue.Queue", publish,
+                 gate: FinalGate):
         super().__init__(daemon=True, name="asr")
         self.cfg = cfg
         self.console = console
         self.q = job_q
         self.publish = publish
+        self.gate = gate
         self.model = None
         self.last_final = ""
 
@@ -285,6 +314,8 @@ class AsrWorker(threading.Thread):
             log_prob_threshold=float(w.get("log_prob_threshold", -1.0)),
             compression_ratio_threshold=float(w.get("compression_ratio_threshold", 2.4)),
             vad_filter=False,
+            # 字幕不需要時間戳；關掉可省下不少解碼時間
+            without_timestamps=bool(w.get("without_timestamps", True)),
         )
         hw = w.get("hotwords") or []
         if hw:
@@ -305,18 +336,25 @@ class AsrWorker(threading.Thread):
                 return
             kind, seq, audio, dur = job
             try:
-                t0 = time.time()
                 if kind == "partial":
+                    # 已有 final 在排隊時不做 provisional，直接讓位給定稿
+                    if self.gate.any():
+                        continue
+                    t0 = time.time()
                     segs, _ = self.model.transcribe(
                         audio, language=self.cfg.get("language", "ja"),
                         beam_size=1, best_of=1, temperature=(0.0,),
-                        condition_on_previous_text=False, vad_filter=False)
+                        condition_on_previous_text=False, vad_filter=False,
+                        without_timestamps=bool(
+                            self.cfg.get("without_timestamps", True)))
                     text = "".join(s.text for s in segs).strip()
                     dt = time.time() - t0
                     if text:
                         self.publish("partial", {"seq": seq, "ja": text,
                                                  "t": round(dt, 2)})
                 else:
+                    self.gate.done()
+                    t0 = time.time()
                     segs, _ = self.model.transcribe(audio, **self._kw_final())
                     text = "".join(s.text for s in segs).strip()
                     dt = time.time() - t0
@@ -343,13 +381,14 @@ class AsrWorker(threading.Thread):
 
 class Translator(threading.Thread):
     def __init__(self, cfg: dict, out_cfg: dict, console: Console, job_q: "queue.Queue",
-                 publish):
+                 publish, gate: FinalGate):
         super().__init__(daemon=True, name="llm")
         self.cfg = cfg
         self.out_cfg = out_cfg
         self.console = console
         self.q = job_q
         self.publish = publish
+        self.gate = gate
         self.llm = None
         self.hist: deque = deque(maxlen=int(cfg.get("history_turns", 3)))
         self.converter = None
@@ -394,15 +433,19 @@ class Translator(threading.Thread):
                 text = text[len(pre):].strip()
         return self.converter.convert(text).strip()
 
-    def _translate(self, text: str) -> str:
+    def _translate(self, text: str, max_tokens: int | None = None,
+                   use_history: bool = True) -> str:
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        for ja, zh in self.hist:
-            messages.append({"role": "user", "content": ja})
-            messages.append({"role": "assistant", "content": zh})
+        if use_history:
+            for ja, zh in self.hist:
+                messages.append({"role": "user", "content": ja})
+                messages.append({"role": "assistant", "content": zh})
         messages.append({"role": "user", "content": text})
+        n_max = int(max_tokens if max_tokens is not None
+                    else self.cfg.get("max_tokens", 200))
         resp = self.llm.create_chat_completion(
             messages,
-            max_tokens=int(self.cfg.get("max_tokens", 200)),
+            max_tokens=n_max,
             temperature=float(self.cfg.get("temperature", 0.15)),
             top_p=0.9,
             repeat_penalty=1.05,
@@ -415,7 +458,7 @@ class Translator(threading.Thread):
                             {"role": "user",
                              "content": "上面不是中文。只用繁體中文重新翻譯原文，"
                                         "其他什麼都不要輸出。"}],
-                max_tokens=int(self.cfg.get("max_tokens", 200)),
+                max_tokens=n_max,
                 temperature=0.1,
                 top_p=0.9,
                 repeat_penalty=1.05,
@@ -433,6 +476,11 @@ class Translator(threading.Thread):
             if job is None:
                 return
             kind, seq, text = job
+            # 有 final 在排隊時，排隊中的 partial 讓位（partial 只是過渡顯示）
+            if kind == "partial" and self.gate.any():
+                continue
+            if kind == "final_ja":
+                self.gate.done()
             try:
                 if not loaded:
                     if not self._load():
@@ -441,7 +489,13 @@ class Translator(threading.Thread):
                     if kind == "warmup":
                         continue
                 t0 = time.time()
-                zh = self._translate(text)
+                if kind == "final_ja":
+                    zh = self._translate(text)
+                else:
+                    # partial 不用歷史、限制長度：省 prefill 時間，反正會被定稿取代
+                    zh = self._translate(
+                        text, max_tokens=int(self.cfg.get("partial_max_tokens", 96)),
+                        use_history=False)
                 dt = time.time() - t0
                 if kind == "final_ja":
                     self.hist.append((text, zh))
@@ -679,23 +733,29 @@ async def run(args) -> int:
     asr_q: "queue.Queue" = queue.Queue()
     trans_q: "queue.Queue" = queue.Queue()
     counters = {"seq": 0}
+    asr_gate = FinalGate()
+    llm_gate = FinalGate()
 
     enable_translate = bool(cfg["translate"].get("enabled", True))
     skip_threshold = int(cfg["translate"].get("skip_if_pending", 3))
 
     def on_utterance(audio: np.ndarray, dur: float):
         counters["seq"] += 1
+        asr_gate.add()
         asr_q.put(("final", counters["seq"], audio, dur))
 
     def on_partial_tick(audio: np.ndarray):
+        if asr_gate.any():
+            return  # 已切句、final 待解，不必再做 provisional
         asr_q.put(("partial", counters["seq"] + 1, audio, 0.0))
 
     def asr_publish(stage: str, data: dict):
         # ASR 事件 -> 翻譯佇列轉發（final_ja / partial）
         if stage == "final_ja" and enable_translate:
+            llm_gate.add()
             trans_q.put(("final_ja", data["seq"], data["ja"]))
         elif stage == "partial" and enable_translate:
-            if trans_q.qsize() < skip_threshold:  # 積壓過多時只出日文 partial
+            if not llm_gate.any() and trans_q.qsize() < skip_threshold:
                 trans_q.put(("partial", data["seq"], data["ja"]))
         if stage == "partial":
             console.write(f"[{now_ts()}] PR  {data.get('ja', '')}  ({data.get('t')}s)",
@@ -711,9 +771,9 @@ async def run(args) -> int:
                           to_file=False)
         broadcaster.publish(stage_out, data)
 
-    asr_worker = AsrWorker(cfg["asr"], console, asr_q, asr_publish)
+    asr_worker = AsrWorker(cfg["asr"], console, asr_q, asr_publish, asr_gate)
     translator = Translator(cfg["translate"], cfg["output"], console, trans_q,
-                            llm_publish)
+                            llm_publish, llm_gate)
 
     vad = StreamVAD(cfg["vad"], on_utterance, on_partial_tick)
 

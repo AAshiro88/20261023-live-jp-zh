@@ -10,7 +10,8 @@
     "device": "cuda",
     "compute_type": "auto",
     "language": "ja",
-    "beam_size": 5,
+    "beam_size": 3,
+    "without_timestamps": true,
     "temperature": [
       0.0,
       0.4,
@@ -27,10 +28,11 @@
   },
   "vad": {
     "threshold": 0.5,
-    "min_silence_duration_ms": 500,
+    "min_silence_duration_ms": 400,
     "min_speech_duration_ms": 300,
     "max_utterance_seconds": 12.0,
-    "preroll_seconds": 0.3
+    "preroll_seconds": 0.3,
+    "partial_every_seconds": 0.8
   },
   "audio_block_seconds": 0.22,
   "translate": {
@@ -41,7 +43,8 @@
     "n_threads": -1,
     "temperature": 0.15,
     "max_tokens": 200,
-    "history_turns": 3,
+    "partial_max_tokens": 96,
+    "history_turns": 2,
     "skip_if_pending": 3
   },
   "output": {

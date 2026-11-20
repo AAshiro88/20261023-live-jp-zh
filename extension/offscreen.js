@@ -18,7 +18,7 @@ let accF32 = null;     // mono float accumulator between worklet callbacks
 let accLen = 0;
 
 const SR = 48000;              // force the capture context to 48 kHz
-const CHUNK_SEND = 8192;       // samples per binary frame (~170 ms)
+const CHUNK_SEND = 2048;       // samples per binary frame (~43 ms)
 const PENDING_MAX = 480000;    // ~10 s of 48 kHz audio buffered while offline
 
 function mixdown(chans) {
