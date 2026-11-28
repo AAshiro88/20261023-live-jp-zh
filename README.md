@@ -72,6 +72,14 @@ live_translate.py (aiohttp)
    - 只想看字幕：雙擊 `open_caption.bat`，開一個獨立迷你視窗
      （預設：螢幕 5/12 寬 x 1/3 高；即 `http://127.0.0.1:8850/?mini=1`），
      可自行關掉大網頁；`open_caption.bat 600 400` 可自訂視窗大小。
+   - **置頂版（Python / tkinter，無額外執行視窗）**：雙擊 `open_caption_py.vbs`，改用 `caption_window.py`。
+     - **永遠在最上層**：`root.attributes("-topmost", True)`；`t` 切換、`Esc`/`q` 關閉。
+     - **不多開視窗**：`.vbs` `WScript.Shell.Run(..., 0, False)` 隱藏 + conda env `pythonw.exe`（無 console；退回 `python.exe` 可能仍顯示 console）。
+     - **不需任何新套件**：`tkinter`（標準庫）+ 既有 `aiohttp`；**不改 `requirements.txt`**。
+     - **僅取代字幕顯示**：語音來源仍是目標分頁的 **Chrome + Live JP-ZH 擴充 `tabCapture`**；需先 `run_live.bat`，連 `ws://127.0.0.1:8850/events`；`final_zh`/`partial` 仍由 `live_translate.py` 決定。
+     - **版面對齊 `?mini=1`**：黑底、無邊框、**日語小字（`.ja` 灰小）+ 中文大字（`.zh` 白粗）**；partial 置底淡化 + `（辨識中…）` + 無 partial 時隱藏；保留最近 `--max-lines`（預設 6；原 `MAX`）。
+     - **尺寸**：主螢幕 **5/12 寬 × 1/4 高**（`sh//4`；原 `open_caption.bat` `SH/3`，此版縮小）、`+30+30`、偵測失敗退回 `1920x1080`；`--width/--height/--max-lines/--font-size/--font/--url` 可覆寫，`--width/--height` 對應 `open_caption.bat width height`。
+     - 需確認 conda `live-jp-zh`（Python 3.11）內 `tkinter`、`pythonw.exe`；launcher 用 `C:\Users\ayore\.conda\envs\live-jp-zh\pythonw.exe`（比照 `run_live.bat`）。**未實際端到端驗證**。
 3. 到要翻譯的日文分頁（例如 YouTube 直播），點 Chrome 工具列擴充圖示
    **「Live JP-ZH Captions」**開始擷取該分頁。狀態一眼可辨：
    **灰圈**＝待命中、**綠圈＋紅色 `REC` 徽章**＝擷取中（游標停上去顯示
@@ -200,7 +208,9 @@ C:\Users\ayore\.conda\envs\live-jp-zh\Scripts\pip.exe install ^
 | `vocal_sep.py` | MDX-Net（UVR）ONNX 人聲分離模組（numpy + onnxruntime，不依賴 torch） |
 | `models\separation\` | 分離模型（首次使用自動下載） |
 | `setup_env.bat` | 環境建置 |
-| `open_caption.bat` | 開獨立迷你字幕視窗 |
+| `open_caption.bat` | 開獨立迷你字幕視窗（Chrome app `?mini=1`；5/12×1/3；可 `open_caption.bat width height`） |
+| `caption_window.py` | Python tkinter 獨立**置頂**字幕視窗（日語小字+中文大字 + partial；接 WS `/events`；對齊 `?mini=1`；5/12×1/4；`-topmost`；無新套件） |
+| `open_caption_py.vbs` | `.vbs` launcher：隱藏視窗 + `pythonw.exe` 跑 `caption_window.py`，無額外 console（純英文） |
 | `requirements.txt` / `requirements.lock.txt` | 依賴（寬鬆 / 鎖定版號） |
 | `extension\` | Chrome MV3 擴充功能 |
 | `models\` | faster-whisper 快取（junction）、`faster-whisper\kotoba-whisper`、GGUF 模型 |
