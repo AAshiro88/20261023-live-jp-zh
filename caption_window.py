@@ -123,6 +123,9 @@ def main() -> int:
     text = tk.Text(
         root, wrap="word", bg=BG, fg=ZH_FG,
         font=(args.font, zh_size),
+        # 關鍵：tk.Text 預設要求約 24 行；小視窗會把底下 partial 擠到看不到。
+        # 設 1 行後由 expand 分配剩餘空間，partial 才能固定在底部。
+        height=1,
         borderwidth=0, padx=10, pady=6,
         state="disabled", cursor="arrow", highlightthickness=0,
         insertbackground=ZH_FG, spacing1=1, spacing3=2,
@@ -167,7 +170,8 @@ def main() -> int:
     def show_partial(ja: str, zh: str) -> None:
         partial_ja.config(text=ja)
         partial_zh.config(text=zh)
-        partial_frame.pack(fill="x", side="bottom")  # order:999 置底；原 pb.style.display=''
+        if not partial_frame.winfo_ismapped():
+            partial_frame.pack(fill="x", side="bottom")  # order:999 置底；原 pb.style.display=''；已 pack 不重複
 
     def add_final(ja: str, zh: str) -> None:
         if not ja and not zh:
@@ -190,7 +194,10 @@ def main() -> int:
                     show_partial(str(e.get("ja") or ""), str(zh) if zh else PARTIAL_PLACEHOLDER)
         except queue.Empty:
             pass
-        root.after(50, pump)
+        except tk.TclError:
+            pass
+        finally:
+            root.after(50, pump)  # 確保 pump 不會因單次錯誤停止
 
     threading.Thread(target=ws_thread_main, args=(args.url, event_q), daemon=True).start()
     root.after(50, pump)
