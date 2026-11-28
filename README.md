@@ -77,7 +77,7 @@ live_translate.py (aiohttp)
      - **不多開視窗**：`.vbs` `WScript.Shell.Run(..., 0, False)` 隱藏 + conda env `pythonw.exe`（無 console；退回 `python.exe` 可能仍顯示 console）。
      - **不需任何新套件**：`tkinter`（標準庫）+ 既有 `aiohttp`；**不改 `requirements.txt`**。
      - **僅取代字幕顯示**：語音來源仍是目標分頁的 **Chrome + Live JP-ZH 擴充 `tabCapture`**；需先 `run_live.bat`，連 `ws://127.0.0.1:8850/events`；`final_zh`/`partial` 仍由 `live_translate.py` 決定。
-     - **版面對齊 `?mini=1`**：黑底、無邊框、**日語小字（`.ja` 灰小）+ 中文大字（`.zh` 白粗）**；partial 置底淡化 + `（辨識中…）` + 無 partial 時隱藏；保留最近 `--max-lines`（預設 6；原 `MAX`）。
+     - **版面對齊 `?mini=1`**：黑底、無邊框、**日語小字（`.ja` 灰小）+ 中文大字（`.zh` 白粗）**；定稿與 partial 在同一個 `Text` 依序排列（固定留白，partial 排在最後，不會蓋住最新定稿）；partial 淡化 + `（辨識中…）` + 無 partial 時不顯示；保留最近 `--max-lines`（預設 6；原 `MAX`）。
      - **尺寸**：主螢幕 **5/12 寬 × 1/4 高**（`sh//4`；原 `open_caption.bat` `SH/3`，此版縮小）、`+30+30`、偵測失敗退回 `1920x1080`；`--width/--height/--max-lines/--font-size/--font/--url` 可覆寫，`--width/--height` 對應 `open_caption.bat width height`。
      - 需確認 conda `live-jp-zh`（Python 3.11）內 `tkinter`、`pythonw.exe`；launcher 用 `C:\Users\ayore\.conda\envs\live-jp-zh\pythonw.exe`（比照 `run_live.bat`）。**未實際端到端驗證**。
 3. 到要翻譯的日文分頁（例如 YouTube 直播），點 Chrome 工具列擴充圖示
